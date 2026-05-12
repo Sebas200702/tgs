@@ -1,0 +1,40 @@
+{
+  "summary": "Comprehensive backend pytest suite for OutSide booking platform. 25/26 tests passed (96.2%). All auth, RBAC, CRUD (locales/canchas/torneos/descuentos), reservas flow (create/conflict/cancel/confirm/me/admin-list), pricing (incl. all 4 discount types integration), upload+serve, Stripe checkout creation, and stats endpoints work. One failure: GET /api/payments/status/{id} returns 500 (uncaught CheckoutError) when Stripe upstream returns 'No such checkout.session'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/payments/status/{session_id}", "issue": "Uncaught emergentintegrations CheckoutError ('No such checkout.session') bubbles up as 500. Happens with the placeholder STRIPE_API_KEY=sk_test_emergent because the created session_id is not recognized by the Stripe test endpoint when status is fetched. Endpoint should wrap stripe_checkout.get_checkout_status in try/except and return a structured error (e.g., 502/424 with message) instead of generic 500."},
+      {"endpoint": "POST /api/payments/checkout", "issue": "Uses Stripe currency='usd' hardcoded — likely should be 'cop' (Colombian pesos) for Barranquilla market. Confirm with product."},
+      {"endpoint": "POST /api/auth/dev-seed", "issue": "Test-only backdoor with no guard (env flag / shared secret). Anyone hitting this endpoint in production can promote themselves to admin. Recommend gating with an env flag like ENABLE_DEV_SEED=true and/or a shared secret header."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Wrap stripe_checkout.get_checkout_status call in /api/payments/status/{session_id} with try/except → return 502 with stripe error message instead of 500.",
+    "Consider same wrapping for /api/payments/checkout to avoid 500 on Stripe API issues.",
+    "Confirm currency for Stripe checkout (usd vs cop) for Barranquilla market.",
+    "Gate /api/auth/dev-seed behind an env flag so it cannot be abused in production."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 924 lines — should be split into routers (auth, locales, canchas, reservas, descuentos, torneos, payments, upload).",
+    "init_storage caches storage_key in a module global; on failure it returns None but put_object/get_object will then raise 500. OK but error message could be clearer.",
+    "auth/session sets the new user's session_token to the value returned by Emergent oauth, but does not verify uniqueness; if Emergent reissues an existing token a duplicate insert may occur. Consider upserting on session_token.",
+    "ReservaIn.fecha/hora are strings without regex/Pydantic validators — invalid formats (e.g., '2027-13-40') silently default weekday to 0 in calc_precio. Add stricter validators.",
+    "best_descuento picks the highest porcentaje but does not handle stacking or expiration dates beyond 'vigente' boolean. Acceptable for MVP.",
+    "All admin guards use require_admin correctly. RBAC enforced on locales/canchas/torneos/descuentos/reservas-list.",
+    "/api/reservas/{rid}/cancel and /confirm only check user owns the reserva or is admin — good. But cancel doesn't free the slot for the conflict check (since query is cancelada:false) — that's actually correct.",
+    "ADMIN_EMAILS comparison is case-insensitive, good. Email from Emergent oauth is lowercased before comparison — good."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "96.2%", "frontend": "N/A"},
+  "test_credentials": "Admin obtained via POST /api/auth/dev-seed {email: admin@outside.com}. Regular user inserted directly into Mongo (TEST_user_* / TEST_tok_*). Cleaned up in fixture teardown.",
+  "seed_data_creation": "Auto-seeded by backend startup (2 locales, 5 canchas, 2 torneos). Test fixtures additionally create TEST_-prefixed locales/canchas/descuentos/torneos/reservas and clean them up.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All endpoints exercised via /app/backend/tests/backend_test.py. Only outstanding failure is the payment status 500 (Stripe upstream returns 'No such checkout.session' with placeholder key sk_test_emergent). After main agent wraps the Stripe call in try/except, re-run pytest /app/backend/tests/backend_test.py. Tests use REACT_APP_BACKEND_URL from env, MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database.",
+  "rca of the issue": "RCA — payment status 500: emergentintegrations.payments.stripe.checkout.StripeCheckout.get_checkout_status() raised CheckoutError('Failed to retrieve session status: Request req_...: No such checkout.session: cs_test_...'). Endpoint code at server.py:732 awaits the call without try/except. Reproduce: 1) POST /api/payments/checkout with valid reserva → 200 returns session_id; 2) GET /api/payments/status/{session_id} → 500. Mitigation: wrap the get_checkout_status call in try/except CheckoutError and return JSON with payment_status='unknown' or a 502 with the error message; also log so payment reconciliation jobs can retry."
+}
