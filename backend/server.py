@@ -729,7 +729,18 @@ async def payment_status(session_id: str, request: Request):
     host_url = str(request.base_url)
     webhook_url = f"{host_url}api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-    status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
+    except Exception as e:
+        logging.error(f"Stripe status error: {e}")
+        return {
+            "status": tx.get("status", "unknown"),
+            "payment_status": tx.get("payment_status", "unknown"),
+            "amount_total": int(float(tx.get("amount", 0)) * 100),
+            "currency": tx.get("currency", "usd"),
+            "reserva_id": tx["reserva_id"],
+            "error": str(e),
+        }
     
     # idempotent: only confirm once
     already_paid = tx.get("payment_status") == "paid"
