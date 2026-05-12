@@ -67,9 +67,19 @@ export default function CanchaDetail() {
   const local = cancha.local || {};
   const items = cancha.items || {};
   const activeItems = Object.entries(items).filter(([, v]) => v);
-  const mapSrc = (local.lat && local.lng)
-    ? `https://maps.google.com/maps?q=${local.lat},${local.lng}&z=16&output=embed`
+  // Use the address as query so Google Maps geocoder resolves to the REAL location,
+  // even if lat/lng are approximate. Falls back to lat/lng if no address.
+  const mapQuery = local.direccion
+    ? encodeURIComponent(local.direccion)
+    : (local.lat && local.lng ? `${local.lat},${local.lng}` : null);
+  const mapSrc = mapQuery
+    ? `https://maps.google.com/maps?q=${mapQuery}&z=16&output=embed`
     : null;
+  const mapsLink = local.direccion
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(local.direccion)}`
+    : (local.lat && local.lng
+        ? `https://www.google.com/maps/dir/?api=1&destination=${local.lat},${local.lng}`
+        : null);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10" data-testid="cancha-detail-page">
@@ -156,7 +166,7 @@ export default function CanchaDetail() {
               </>
             )}
             <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${local.lat},${local.lng}`}
+              href={mapsLink}
               target="_blank" rel="noopener noreferrer"
               className="pill-btn mt-5 inline-flex text-sm"
               data-testid="abrir-maps-btn"

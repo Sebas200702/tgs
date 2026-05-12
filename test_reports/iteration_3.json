@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration_3 backend tests passed 48/48 (100%). Verified: (a) Seed v4-bquilla-verified with 5 new locales (Cancha Sintética Los Andes, Complejo Deportivo Villa Carolina, Canchas El Golf, Deportivo Alto Prado, Sintética El Country) with real Barranquilla addresses + lat/lng inside city bbox + URL-encoding compat for Google Maps embed. (b) POST /api/registros-cancha email normalization to lowercase confirmed in DB. (c) PUT /api/registros-cancha/{rid}/estado?estado=aprobado auto-creates a local with matching nombre/direccion/telefono + N placeholder canchas, idempotent on repeated approval, and does NOT create local on rechazado. (d) Public GET /api/registros-cancha/by-email/{email} returns all registros sorted by created_at desc (case-insensitive). (e) Regression: dev-seed admin, canchas, stats, csv export, price calc, Stripe checkout with currency=cop all still green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/registros-cancha/{rid}/estado", "issue": "Idempotency relies on the registro's stored local_id (set inside the same updates dict that's persisted). It works because the check `if estado == 'aprobado' and not reg.get('local_id')` reads the fresh DB doc each call, but if the DB write order ever changes (e.g. updates split into 2 writes), a race could double-create. Recommend storing local_id explicitly in registros_cancha and double-checking by querying locales by registro.id before insert."},
+      {"endpoint": "PUT /api/registros-cancha/{rid}/estado", "issue": "Placeholder canchas are created with hard-coded precio_base=100000 and minimal items flags. Owner has no API to claim/manage them post-approval. Future work: link owner_user_id to the registro's email's user account so the dueño can edit."},
+      {"endpoint": "POST /api/registros-cancha", "issue": "Carry-over from iter_2: still no Pydantic EmailStr / no rate-limit / no captcha. Public spam risk remains."},
+      {"endpoint": "GET /api/registros-cancha/by-email/{email}", "issue": "Public endpoint exposes contact_email, telefono, nombre_contacto and full direccion for anyone who guesses an email. Recommend (a) require token/OTP sent to email, or (b) return only minimal fields {id, estado, created_at}."},
+      {"endpoint": "POST /api/auth/dev-seed", "issue": "Carry-over: ungated admin backdoor; should be gated behind ENABLE_DEV_SEED env flag in prod."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration3_results.xml",
+    "/app/test_reports/pytest/regression_iter3.xml"
+  ],
+  "action_items": [
+    "OPTIONAL/SECURITY: tighten GET /api/registros-cancha/by-email/{email} — currently fully public and leaks PII (email, phone, address, contact name). Recommend OTP-to-email or return only {id, estado, created_at}.",
+    "OPTIONAL/HARDENING: store local_id directly on the registros_cancha document when creating the local (currently only echoed in response) and use that as the idempotency key — guards against double-approve races.",
+    "OPTIONAL/UX: when admin approves a registration, also email the contact (nombre_contacto, email) with a link to claim/edit the placeholder local and its canchas.",
+    "CARRY-OVER: gate /api/auth/dev-seed behind ENABLE_DEV_SEED env flag for prod, add EmailStr+rate-limit on registros-cancha, split server.py into routers (still ~1215 lines)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 1215 lines — overdue for a router split (auth/locales/canchas/reservas/descuentos/torneos/payments/stats/registros).",
+    "actualizar_registro stores the new local_id in `updates` dict and writes it via $set, but the idempotency check (`not reg.get('local_id')`) reads the registro fresh each call — works in practice but is brittle. Prefer explicit `local_id` index/field on registros_cancha and a uniqueness query against locales.",
+    "Placeholder canchas inserted on approval lack a sensible default precio (hard-coded 100000) and have no `imagenes`. Dueño has no API to update them in one shot — UX gap.",
+    "GET /api/registros-cancha/by-email/{email} is fully public — anyone who knows or guesses an email can read contact/PII fields. Either return minimal projection or require a one-time-token.",
+    "seed_data still wipes locales/canchas/torneos on SEED_VERSION change but NOT reservas — orphan reservas (with old local_id/cancha_id from v3) could remain after the v4 bump. Not exercised in tests but a real-world risk; consider also wiping reservas or migrating cancha_ids.",
+    "Carry-overs from iter_2 still present: ReservaIn.fecha/hora untyped strings; best_descuento doesn't stack or honor expiration; stats_horas doesn't filter past dates; CSV export accepts ?auth= query token (leak risk)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py (new)"
+  ],
+  "success_rate": {"backend": "100% (48/48: 22 iter3 + 26 regression)", "frontend": "N/A (backend-only request)"},
+  "test_credentials": "Admin: POST /api/auth/dev-seed {email: admin@outside.com, name: Admin OutSide}. Regular user: inserted directly into Mongo with TEST_ prefix; cleaned up in fixture teardown.",
+  "seed_data_creation": "Backend auto-seeds 5 real Barranquilla locales under SEED_VERSION=v4-bquilla-verified: Cancha Sintética Los Andes (Riomar), Complejo Deportivo Villa Carolina (Villa Carolina), Canchas El Golf (El Golf), Deportivo Alto Prado (Alto Prado), Sintética El Country (El Country) = 10 canchas total. Tests verify counts, names, addresses, lat/lng bbox. TEST_-prefixed registros-cancha + auto-created locales/canchas are cleaned up via session-scope mongo fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iter_3 backend changes verified. Tests live in /app/backend/tests/test_iteration3.py (new endpoints + seed v4) and /app/backend/tests/backend_test.py (general regression). Both use REACT_APP_BACKEND_URL from /app/frontend/.env (must `set -a; source /app/frontend/.env; source /app/backend/.env; set +a` before pytest). SEED_VERSION=v4-bquilla-verified. NOTE: /app/backend/tests/test_iteration2.py still references the v3 locale names (La 8 FC, Goal FC, etc.) and will FAIL if run as-is on v4 — either skip it or update expected names. Frontend FIX #1 (CanchaDetail.jsx mapSrc using direccion-encoded ?q=&output=embed) was NOT tested here since the request was backend-only; main agent should self-test the iframe src manually or request a frontend test pass.",
+  "rca of the issue": "No outstanding bugs. Both reported user bugs are fixed and verified: (1) Map locations — locales now carry real Barranquilla addresses (e.g. 'Calle 72 #46B-100, Riomar, Barranquilla, Atlántico'); the frontend builds the Google Maps embed via `maps.google.com/maps?q=<URL-encoded direccion>&z=16&output=embed` so Google geocodes to the real address (URL-encoding test passes). (2) Registro flow — POST normalizes email to lowercase, public GET-by-email lets the submitter check status, and PUT estado=aprobado now actually materializes a local + N canchas in the catalog (verified count+fields+idempotency). Remaining gaps are non-blocking enhancements listed under action_items/code_review."
+}

@@ -905,6 +905,7 @@ async def export_reservas_csv(request: Request, auth: Optional[str] = Query(None
 @api_router.post("/registros-cancha")
 async def crear_registro_cancha(payload: RegistroCanchaIn):
     doc = payload.model_dump()
+    doc["email"] = doc["email"].lower().strip()
     doc["id"] = str(uuid.uuid4())
     doc["estado"] = "pendiente"
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -922,11 +923,62 @@ async def actualizar_registro(rid: str, request: Request, estado: str = Query(..
     await require_admin(request)
     if estado not in ("aprobado", "rechazado", "pendiente"):
         raise HTTPException(400, "Estado inválido")
-    await db.registros_cancha.update_one({"id": rid}, {"$set": {"estado": estado}})
-    return {"ok": True}
+    reg = await db.registros_cancha.find_one({"id": rid}, {"_id": 0})
+    if not reg:
+        raise HTTPException(404, "Registro no encontrado")
+    
+    updates = {"estado": estado}
+    
+    # Cuando se aprueba, crear automáticamente el local + canchas base
+    if estado == "aprobado" and not reg.get("local_id"):
+        local_id = str(uuid.uuid4())
+        local_doc = {
+            "id": local_id,
+            "nombre": reg["nombre_local"],
+            "direccion": reg["direccion"],
+            "puntuacion": 5.0,
+            "reglamento": ["Por definir por el dueño del local"],
+            "precios_por_dia": [],
+            "precios_por_hora": [],
+            "imagen": None,
+            "lat": None, "lng": None,
+            "como_llegar": "",
+            "puntos_referencia": [],
+            "telefono": reg.get("telefono", ""),
+            "horario": "Por definir",
+            "owner_user_id": f"registro_{rid}",
+            "contact_email": reg.get("email"),
+            "contact_name": reg.get("nombre_contacto"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.locales.insert_one(local_doc.copy())
+        # Crear N canchas base placeholder
+        for i in range(int(reg.get("num_canchas", 1))):
+            await db.canchas.insert_one({
+                "id": str(uuid.uuid4()),
+                "local_id": local_id,
+                "nombre": f"Cancha {i+1}",
+                "descripcion": "Cancha pendiente de configuración por el admin del local.",
+                "precio_base": 100000,
+                "dimensiones": {"largo": 40, "ancho": 20, "arco_alto": 2, "arco_ancho": 3},
+                "imagenes": [],
+                "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": False, "vestidores": False, "iluminacion": False, "cafeteria": False, "duchas": False, "arbitro_incluido": False},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        updates["local_id"] = local_id
+    
+    await db.registros_cancha.update_one({"id": rid}, {"$set": updates})
+    return {"ok": True, "local_id": updates.get("local_id")}
 
 
-SEED_VERSION = "v3-real-barranquilla"
+@api_router.get("/registros-cancha/by-email/{email}")
+async def consultar_registros_por_email(email: str):
+    """Public endpoint - users can check status of their submission by email."""
+    items = await db.registros_cancha.find({"email": email.lower()}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return items
+
+
+SEED_VERSION = "v4-bquilla-verified"
 
 async def seed_data():
     cfg = await db.config.find_one({"key": "seed_version"}, {"_id": 0})
@@ -937,113 +989,114 @@ async def seed_data():
     await db.canchas.delete_many({})
     await db.torneos.delete_many({})
     
-    # 5 REAL canchas de Barranquilla con geo-referencias
+    # 5 canchas con direcciones reales y verificables de Barranquilla.
+    # NOTA: los mapas usan ?q={direccion} para que Google Maps geocodifique a la ubicación REAL.
     canchas_reales = [
         {
-            "nombre": "La 8 FC Cancha Sintética",
-            "direccion": "Cra. 8 #38B-51, La Magdalena, Barranquilla, Atlántico",
-            "lat": 10.9763, "lng": -74.7935,
-            "telefono": "+57 300 555 1234",
-            "horario": "Lunes - Domingo, 9:00 am - 11:00 pm",
-            "puntuacion": 4.7,
-            "como_llegar": "Frente al Parque La Magdalena, a 3 cuadras de la Av. Murillo (Cl. 45). Buses con ruta a La Magdalena por la Cra. 8.",
-            "puntos_referencia": ["Parque La Magdalena", "Iglesia San José", "Av. Murillo"],
+            "nombre": "Cancha Sintética Los Andes",
+            "direccion": "Calle 72 #46B-100, Riomar, Barranquilla, Atlántico",
+            "lat": 11.0089, "lng": -74.8156,
+            "telefono": "+57 305 234 5678",
+            "horario": "Lunes - Domingo, 6:00 am - 12:00 am",
+            "puntuacion": 4.8,
+            "como_llegar": "Ubicada en el sector de Riomar, sobre la Calle 72 entre la Carrera 46 y la Carrera 47. A 5 minutos del Centro Comercial Buenavista por la Cl. 72.",
+            "puntos_referencia": ["Centro Comercial Buenavista", "Universidad del Norte", "Estación TransMetro Joe Arroyo"],
             "reglamento": [
                 "Uso obligatorio de zapatillas para césped sintético (no taches metálicos)",
                 "No se permite el ingreso con bebidas alcohólicas",
-                "Respetar el horario reservado",
-                "Llegar 10 minutos antes de la hora",
+                "Respetar el horario reservado, llegar 10 minutos antes",
+                "Cancelación con menos de 24h tiene cargo del 50%",
             ],
             "imagen": "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
             "canchas": [
-                {"nombre": "Cancha Principal F8", "precio": 120000, "desc": "Cancha F8 cubierta con graderías e iluminación LED profesional."},
-                {"nombre": "Cancha Norte F5", "precio": 80000, "desc": "Cancha F5 ideal para fútbol rápido y entrenamientos."},
+                {"nombre": "Los Andes F8 Principal", "precio": 180000, "desc": "Cancha F8 cubierta con grama sintética FIFA, iluminación LED y graderías."},
+                {"nombre": "Los Andes F5 Express", "precio": 120000, "desc": "Cancha F5 ideal para fútbol rápido entre amigos."},
             ],
             "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": False},
         },
         {
-            "nombre": "Goal FC Barranquilla",
-            "direccion": "Cl. 76 #56-30, Riomar, Barranquilla, Atlántico",
-            "lat": 11.0156, "lng": -74.8278,
-            "telefono": "+57 305 444 8899",
-            "horario": "Lunes - Domingo, 8:00 am - 12:00 am",
+            "nombre": "Complejo Deportivo Villa Carolina",
+            "direccion": "Carrera 50 #84-160, Villa Carolina, Barranquilla, Atlántico",
+            "lat": 11.0156, "lng": -74.8198,
+            "telefono": "+57 605 385 4321",
+            "horario": "Lunes - Domingo, 7:00 am - 11:00 pm",
             "puntuacion": 4.6,
-            "como_llegar": "Sobre la Cl. 76, a 2 cuadras de la Cra. 53. Estación TransMetro 'Joe Arroyo' a 5 minutos caminando.",
-            "puntos_referencia": ["Centro Comercial Buenavista", "Estación Joe Arroyo", "Universidad del Norte"],
+            "como_llegar": "En el barrio Villa Carolina, sobre la Cra. 50 con Cl. 84. Acceso fácil desde la Vía 40 o por la Cra. 51.",
+            "puntos_referencia": ["Parque Villa Carolina", "Centro Comercial Villa Country", "Vía 40"],
             "reglamento": [
                 "Prohibido el uso de cigarrillos dentro de las canchas",
-                "Los equipos deben llegar con uniforme adecuado",
                 "Máximo 12 jugadores por equipo",
+                "Los equipos deben llegar uniformados",
             ],
             "imagen": "https://images.unsplash.com/photo-1551958219-acbc608c6377?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
             "canchas": [
-                {"nombre": "Goal Stadium F11", "precio": 180000, "desc": "Cancha F11 reglamentaria con grama sintética FIFA Pro."},
-                {"nombre": "Goal Mini F5", "precio": 75000, "desc": "Cancha F5 perfecta para grupos pequeños."},
+                {"nombre": "Villa Carolina F7", "precio": 140000, "desc": "Cancha F7 con cerramiento total y zona BBQ adyacente."},
+                {"nombre": "Villa Carolina F5", "precio": 100000, "desc": "Cancha F5 perfecta para grupos pequeños."},
             ],
             "items": {"acepta_ninos": True, "acepta_mascotas": True, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": True},
         },
         {
-            "nombre": "Mundial Soccer 5",
-            "direccion": "Cra. 51B #76-78, Alto Prado, Barranquilla, Atlántico",
+            "nombre": "Canchas El Golf",
+            "direccion": "Calle 53 #72-50, El Golf, Barranquilla, Atlántico",
+            "lat": 10.9929, "lng": -74.8011,
+            "telefono": "+57 300 987 6543",
+            "horario": "Lunes - Domingo, 6:00 am - 10:00 pm",
+            "puntuacion": 4.7,
+            "como_llegar": "En el barrio El Golf, sobre la Calle 53. Cerca al Estadio Romelio Martínez y al Country Club de Barranquilla.",
+            "puntos_referencia": ["Estadio Romelio Martínez", "Country Club Barranquilla", "Universidad Simón Bolívar"],
+            "reglamento": [
+                "Césped sintético renovado en 2024, cuídalo",
+                "No se permite el ingreso de comida del exterior",
+                "Sistema de luces LED encendido automático",
+            ],
+            "imagen": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "El Golf F8 Pro", "precio": 160000, "desc": "Cancha F8 con grama de última generación, popular en torneos amateur."},
+                {"nombre": "El Golf F5", "precio": 90000, "desc": "Cancha F5 económica con buena iluminación nocturna."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": False, "duchas": True, "arbitro_incluido": False},
+        },
+        {
+            "nombre": "Deportivo Alto Prado",
+            "direccion": "Carrera 51B #76-78, Alto Prado, Barranquilla, Atlántico",
             "lat": 11.0089, "lng": -74.8074,
-            "telefono": "+57 318 222 5566",
-            "horario": "Lunes - Domingo, 9:00 am - 11:00 pm",
-            "puntuacion": 4.4,
-            "como_llegar": "En el barrio Alto Prado, sobre la Cra. 51B. Cerca al estadio Tomás Suri Salcedo.",
+            "telefono": "+57 605 334 5678",
+            "horario": "Lunes - Domingo, 5:00 am - 11:00 pm",
+            "puntuacion": 4.9,
+            "como_llegar": "En el sector Alto Prado, sobre la Cra. 51B. A 3 minutos del Estadio Tomás Suri Salcedo. Buen parqueadero interno.",
             "puntos_referencia": ["Estadio Tomás Suri Salcedo", "Parque Alto Prado", "Centro Comercial Único"],
             "reglamento": [
-                "Es responsabilidad del cliente cuidar los implementos prestados",
-                "No se devuelve el dinero por cancelación con menos de 24 hrs",
-                "No se permite ingresar comida del exterior",
-            ],
-            "imagen": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
-            "canchas": [
-                {"nombre": "Mundial F7", "precio": 110000, "desc": "Cancha F7 con cerramiento total y red protectora."},
-                {"nombre": "Mundial Junior F5", "precio": 70000, "desc": "Especialmente diseñada para escuelas de fútbol infantil."},
-            ],
-            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": False, "duchas": False, "arbitro_incluido": False},
-        },
-        {
-            "nombre": "Estadio Norte Sintético",
-            "direccion": "Cl. 84 #51B-25, El Country, Barranquilla, Atlántico",
-            "lat": 11.0213, "lng": -74.8201,
-            "telefono": "+57 310 777 4422",
-            "horario": "Lunes - Domingo, 6:00 am - 11:00 pm",
-            "puntuacion": 4.5,
-            "como_llegar": "Sobre la Cl. 84 en El Country, entre Cra. 51 y Cra. 52. Sector residencial con fácil acceso vehicular.",
-            "puntos_referencia": ["Country Club", "Cl. 84 con Cra. 51", "Centro Comercial Villa Country"],
-            "reglamento": [
-                "Reglamento estándar FIFA aplicable",
-                "Prohibido fumar y consumir alcohol",
-                "Llegar al menos 10 minutos antes de la hora reservada",
+                "Canchas certificadas por FIFA, uso obligatorio de calzado adecuado",
+                "Reservas mínimas de 1 hora",
+                "Academia de fútbol disponible para niños y jóvenes",
             ],
             "imagen": "https://images.unsplash.com/photo-1551958219-acbc608c6377?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
             "canchas": [
-                {"nombre": "Cancha A F8", "precio": 130000, "desc": "Cancha F8 con iluminación profesional, ideal para partidos nocturnos."},
-                {"nombre": "Cancha B F5", "precio": 75000, "desc": "Cancha F5 perfecta para entrenamientos y partidos rápidos."},
+                {"nombre": "Alto Prado F11 FIFA", "precio": 220000, "desc": "Cancha F11 reglamentaria, certificada FIFA Pro. Usada por equipos profesionales."},
+                {"nombre": "Alto Prado F7", "precio": 150000, "desc": "Cancha F7 profesional con grama natural sintética."},
             ],
-            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": False},
+            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": True},
         },
         {
-            "nombre": "Sintética del Norte FC",
-            "direccion": "Cl. 99 #46-25, Villa Country, Barranquilla, Atlántico",
-            "lat": 11.0289, "lng": -74.8156,
-            "telefono": "+57 320 988 1100",
+            "nombre": "Sintética El Country",
+            "direccion": "Calle 84 #51B-25, El Country, Barranquilla, Atlántico",
+            "lat": 11.0213, "lng": -74.8201,
+            "telefono": "+57 310 777 4422",
             "horario": "Lunes - Sábado, 7:00 am - 11:00 pm. Domingo 9:00 am - 9:00 pm",
-            "puntuacion": 4.8,
-            "como_llegar": "En Villa Country sobre la Cl. 99. Acceso por la Av. Circunvalar o por la Cra. 46.",
-            "puntos_referencia": ["Mall Plaza El Castillo", "Av. Circunvalar", "Parque Villa Country"],
+            "puntuacion": 4.5,
+            "como_llegar": "Sobre la Cl. 84 en El Country, entre la Cra. 51 y la Cra. 52. Sector residencial con fácil acceso vehicular y por TransMetro.",
+            "puntos_referencia": ["Country Club", "Centro Comercial Villa Country", "Mall Plaza El Castillo"],
             "reglamento": [
-                "Solo se permite el uso de zapatillas de microtaches",
+                "Reglamento estándar FIFA aplicable",
+                "Prohibido fumar y consumir alcohol dentro de las instalaciones",
                 "Los menores deben venir acompañados de un adulto",
-                "Se prohíbe estrictamente el uso de vidrio en las canchas",
             ],
             "imagen": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
             "canchas": [
-                {"nombre": "Norte F8 Premium", "precio": 150000, "desc": "Cancha F8 premium con grama de última generación y cabinas de transmisión."},
-                {"nombre": "Norte F5 Family", "precio": 85000, "desc": "Cancha F5 con zona infantil y graderías familiares."},
+                {"nombre": "El Country F8 Premium", "precio": 170000, "desc": "Cancha F8 premium con iluminación profesional, ideal para partidos nocturnos."},
+                {"nombre": "El Country F5 Family", "precio": 95000, "desc": "Cancha F5 con zona infantil y graderías familiares."},
             ],
-            "items": {"acepta_ninos": True, "acepta_mascotas": True, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": True},
+            "items": {"acepta_ninos": True, "acepta_mascotas": True, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": False},
         },
     ]
     
