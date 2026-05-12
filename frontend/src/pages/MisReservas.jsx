@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle, XCircle, CreditCard } from "lucide-react";
 import api from "../lib/api";
 import { toast } from "sonner";
+import { formatCOP } from "../lib/format";
 
 export default function MisReservas() {
   const [items, setItems] = useState([]);
@@ -50,7 +51,7 @@ export default function MisReservas() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-display text-2xl font-black text-[#1F4D2A]">${r.precio?.toFixed(2)}</div>
+                <div className="font-display text-2xl font-black text-[#1F4D2A]">{formatCOP(r.precio)}</div>
                 <div className="flex gap-2 mt-3 justify-end flex-wrap">
                   {!r.cancelada && !r.confirmada && (
                     <button onClick={() => pay(r.id)} data-testid={`pay-${r.id}`} className="pill-btn-dark text-xs"><CreditCard size={14} /> Pagar</button>

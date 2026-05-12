@@ -41,9 +41,10 @@ export default function TorneoDetail() {
     <div className="max-w-5xl mx-auto px-4 py-10" data-testid="torneo-detail">
       <img src={torneo.imagen} alt={torneo.nombre} className="w-full h-72 object-cover rounded-3xl" />
       <h1 className="font-display text-4xl md:text-5xl font-black text-[#1F4D2A] mt-6">{torneo.nombre}</h1>
-      <div className="flex flex-wrap gap-4 mt-3 text-sm text-[#4B5563]">
+      <div className="flex flex-wrap gap-3 mt-3 text-sm text-[#4B5563]">
         <span className="flex items-center gap-1"><Trophy size={16} /> {torneo.tipo}</span>
-        <span className="flex items-center gap-1"><Users size={16} /> {torneo.equipos?.length || 0} equipos</span>
+        <span className="px-3 py-1 rounded-full bg-[#1F4D2A] text-white font-semibold text-xs">{torneo.categoria || "Senior"}</span>
+        <span className="flex items-center gap-1"><Users size={16} /> {torneo.equipos?.length || 0}/{torneo.cupo_maximo || "?"} equipos</span>
         {torneo.fecha_inicio && <span className="flex items-center gap-1"><CalendarDays size={16} /> Inicio: {torneo.fecha_inicio}</span>}
         <span className={`text-xs px-3 py-1 rounded-full font-semibold ${torneo.abierto ? "bg-[#D4E8C9] text-[#1F4D2A]" : "bg-red-100 text-red-700"}`}>
           {torneo.abierto ? "Abierto" : "Cerrado"}

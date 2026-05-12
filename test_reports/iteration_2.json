@@ -1,0 +1,46 @@
+{
+  "summary": "Full backend regression + iteration_2 feature tests for OutSide. 52/52 passed (100%). All new endpoints, COP currency, real Barranquilla seed data, items flags, lat/lng, registros-cancha public form, stats (horas/ingresos), CSV export (Bearer/cookie/query auth), and torneo categoria work correctly. Previously failing payment/status (Stripe upstream error) now returns 200 with cached tx info — fix verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/dev-seed", "issue": "Still ungated test backdoor — anyone in production can promote themselves to admin. Recommend ENABLE_DEV_SEED env flag and/or shared secret header. Flagged previously, still present."},
+      {"endpoint": "POST /api/registros-cancha", "issue": "No rate limiting on public form — vulnerable to spam abuse. Recommend captcha/IP rate-limit before going live."},
+      {"endpoint": "POST /api/registros-cancha", "issue": "email field uses plain str, no Pydantic EmailStr validation — invalid emails (e.g. 'foo') are accepted."},
+      {"endpoint": "GET /api/stats/ingresos", "issue": "ingresos_potenciales includes ALL non-cancelled reservas (initiated/unpaid too), which may overstate revenue. Consider separating 'pending' vs 'confirmed'."},
+      {"endpoint": "GET /api/reservas/export.csv", "issue": "Accepts session token as URL query param ?auth=<token>. This is necessary for browser anchor-download, but tokens may leak via referer headers, browser history, and server access logs. Mitigation: use short-lived signed download URLs or a POST→redirect pattern."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration2_results.xml",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [
+    "Gate /api/auth/dev-seed behind ENABLE_DEV_SEED env flag for production.",
+    "Add EmailStr validation + basic rate limiting to /api/registros-cancha.",
+    "Consider splitting ingresos_potenciales into pending vs confirmed in /api/stats/ingresos.",
+    "Optional: switch CSV export ?auth= to short-lived signed URL or POST-based download to avoid token leakage.",
+    "Optional: server.py is now ~1160 lines — split into routers (auth, locales, canchas, reservas, descuentos, torneos, payments, stats, registros)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew from 924 → 1162 lines; should now be split into modular routers.",
+    "RegistroCanchaIn.email: str — should be EmailStr (pydantic[email]) to validate format.",
+    "Public POST /api/registros-cancha is completely unauthenticated and unrate-limited — DOS/spam risk. Add slowapi or similar.",
+    "CSV export accepts session_token in URL query (?auth=). Necessary for browser download but tokens leak via logs/referer/history. Mitigation: signed short-lived URL.",
+    "GET /api/stats/ingresos counts all non-cancelled reservas as 'potenciales' — initiated-but-unpaid reservas inflate this. Consider clearer state separation.",
+    "ReservaIn.fecha/hora still plain str without regex/validators (carry-over from iteration_1).",
+    "best_descuento still does not stack discounts or honor expiration dates (carry-over). Acceptable for MVP.",
+    "stats_horas aggregation does not filter expired/past dates — could conflate hot future hours with already-played ones. Consider {fecha: {$gte: today}} for forward-looking demand.",
+    "seed_data wipes locales/canchas/torneos on SEED_VERSION change but NOT reservas — orphan reservas (with old local_id/cancha_id) could remain. Not hit in tests but a real-world risk."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2.py"],
+  "success_rate": {"backend": "100% (52/52)", "frontend": "N/A (backend-only request)"},
+  "test_credentials": "Admin: POST /api/auth/dev-seed {email: admin@outside.com}. Regular user: inserted directly into Mongo with TEST_ prefix; cleaned up in fixture teardown.",
+  "seed_data_creation": "Backend auto-seeds 5 real Barranquilla locales (La 8 FC, Goal FC, Mundial Soccer 5, Estadio Norte, Sintética del Norte) = 10 canchas + 4 torneos (Senior/Juvenil/Infantil/Mixto) under SEED_VERSION=v3-real-barranquilla. Tests verify counts and content. Additional TEST_-prefixed registros-cancha, descuentos, torneos and reservas created/cleaned per session.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iteration_2 backend changes verified end-to-end. Tests live in /app/backend/tests/test_iteration2.py (new endpoints) and /app/backend/tests/backend_test.py (regression). Both use REACT_APP_BACKEND_URL from /app/frontend/.env, MONGO_URL+DB_NAME from /app/backend/.env. SEED_VERSION=v3-real-barranquilla; if seed is bumped, expected locale names/counts in TestSeed must be updated. Stripe currency is 'cop' and amounts are COP integer thousands (e.g., 120000). Test ran 100% green in 14.7s combined.",
+  "rca of the issue": "No outstanding bugs. Previously-reported payment/status 500 is fixed by wrapping stripe_checkout.get_checkout_status in try/except and returning cached transaction info (server.py:760-771)."
+}

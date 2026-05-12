@@ -15,6 +15,8 @@ export default function Navbar() {
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
   };
 
+  const goRegistraTuCancha = () => navigate("/registra-tu-cancha");
+
   const links = [
     { to: "/", label: "Inicio" },
     { to: "/canchas", label: "Canchas" },

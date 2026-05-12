@@ -16,10 +16,11 @@ import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
 import AuthCallback from "./pages/AuthCallback";
 import PaymentSuccess from "./pages/PaymentSuccess";
+import RegistrarCancha from "./pages/RegistrarCancha";
+import { QuienesSomos, Faq, Terminos, Privacidad, Contacto } from "./pages/InfoPages";
 
 function AppRouter() {
   const location = useLocation();
-  // Check URL fragment (not query params) for session_id
   if (location.hash?.includes("session_id=")) {
     return <AuthCallback />;
   }
@@ -37,6 +38,12 @@ function AppRouter() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/payment/success" element={<PaymentSuccess />} />
+          <Route path="/registra-tu-cancha" element={<RegistrarCancha />} />
+          <Route path="/quienes-somos" element={<QuienesSomos />} />
+          <Route path="/faq" element={<Faq />} />
+          <Route path="/terminos" element={<Terminos />} />
+          <Route path="/privacidad" element={<Privacidad />} />
+          <Route path="/contacto" element={<Contacto />} />
         </Routes>
       </main>
       <Footer />

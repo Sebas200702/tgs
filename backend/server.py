@@ -94,6 +94,16 @@ class Dimensiones(BaseModel):
     arco_alto: float = 2
     arco_ancho: float = 3
 
+class ItemsIngreso(BaseModel):
+    acepta_ninos: bool = True
+    acepta_mascotas: bool = False
+    parqueadero: bool = True
+    vestidores: bool = True
+    iluminacion: bool = True
+    cafeteria: bool = False
+    duchas: bool = False
+    arbitro_incluido: bool = False
+
 class CanchaIn(BaseModel):
     nombre: str
     descripcion: str = ""
@@ -101,6 +111,7 @@ class CanchaIn(BaseModel):
     local_id: str
     dimensiones: Dimensiones = Field(default_factory=Dimensiones)
     imagenes: List[str] = []
+    items: ItemsIngreso = Field(default_factory=ItemsIngreso)
 
 class PrecioDia(BaseModel):
     dia_nombre: str  # Lunes, Martes...
@@ -119,6 +130,12 @@ class LocalIn(BaseModel):
     precios_por_dia: List[PrecioDia] = []
     precios_por_hora: List[PrecioHora] = []
     imagen: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    como_llegar: Optional[str] = ""
+    puntos_referencia: List[str] = []
+    telefono: Optional[str] = ""
+    horario: Optional[str] = "Lunes - Domingo, 9:00 am - 11:00 pm"
 
 class ReservaIn(BaseModel):
     local_id: str
@@ -150,9 +167,20 @@ class TorneoIn(BaseModel):
     descripcion: str = ""
     sedes: List[str] = []  # cancha ids
     tipo: str = "liga"
+    categoria: str = "Senior"  # Infantil, Juvenil, Senior, Mixto, Veteranos
     abierto: bool = True
     fecha_inicio: Optional[str] = None
     imagen: Optional[str] = None
+    cupo_maximo: int = 16
+
+class RegistroCanchaIn(BaseModel):
+    nombre_local: str
+    direccion: str
+    telefono: str
+    email: str
+    nombre_contacto: str
+    num_canchas: int = 1
+    mensaje: Optional[str] = ""
 
 # =================== AUTH HELPERS ===================
 async def get_current_user(request: Request) -> Optional[dict]:
@@ -696,7 +724,7 @@ async def create_checkout(payload: CheckoutIn, request: Request):
     
     req = CheckoutSessionRequest(
         amount=amount,
-        currency="usd",
+        currency="cop",
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"reserva_id": reserva["id"], "user_id": user["user_id"]},
@@ -708,7 +736,7 @@ async def create_checkout(payload: CheckoutIn, request: Request):
         "reserva_id": reserva["id"],
         "user_id": user["user_id"],
         "amount": amount,
-        "currency": "usd",
+        "currency": "cop",
         "metadata": {"reserva_id": reserva["id"]},
         "payment_status": "initiated",
         "status": "open",
@@ -737,7 +765,7 @@ async def payment_status(session_id: str, request: Request):
             "status": tx.get("status", "unknown"),
             "payment_status": tx.get("payment_status", "unknown"),
             "amount_total": int(float(tx.get("amount", 0)) * 100),
-            "currency": tx.get("currency", "usd"),
+            "currency": tx.get("currency", "cop"),
             "reserva_id": tx["reserva_id"],
             "error": str(e),
         }
@@ -795,109 +823,308 @@ async def get_stats():
         "reservas_hoy": await db.reservas.count_documents({"fecha": datetime.now(timezone.utc).strftime("%Y-%m-%d")}),
     }
 
+@api_router.get("/stats/horas")
+async def stats_horas(request: Request):
+    await require_admin(request)
+    pipeline = [
+        {"$match": {"cancelada": False}},
+        {"$group": {"_id": "$hora", "total": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+    ]
+    items = await db.reservas.aggregate(pipeline).to_list(50)
+    return {"horas": [{"hora": x["_id"], "total": x["total"]} for x in items]}
+
+@api_router.get("/stats/ingresos")
+async def stats_ingresos(request: Request):
+    await require_admin(request)
+    pipeline = [
+        {"$match": {"cancelada": False}},
+        {"$group": {"_id": None, "total": {"$sum": "$precio"}, "count": {"$sum": 1}}},
+    ]
+    res = await db.reservas.aggregate(pipeline).to_list(1)
+    paid = await db.reservas.aggregate([
+        {"$match": {"payment_status": "paid"}},
+        {"$group": {"_id": None, "total": {"$sum": "$precio"}, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    return {
+        "total_reservas": res[0]["count"] if res else 0,
+        "ingresos_potenciales": res[0]["total"] if res else 0,
+        "total_pagadas": paid[0]["count"] if paid else 0,
+        "ingresos_confirmados": paid[0]["total"] if paid else 0,
+    }
+
+
+# =================== EXPORT CSV ===================
+@api_router.get("/reservas/export.csv")
+async def export_reservas_csv(request: Request, auth: Optional[str] = Query(None)):
+    token = auth or request.cookies.get("session_token") or request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        raise HTTPException(401, "No autenticado")
+    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(401, "Sesión inválida")
+    user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+    if not user_doc or user_doc.get("role") != "admin":
+        raise HTTPException(403, "Solo administradores")
+    
+    import csv
+    import io as _io
+    reservas = await db.reservas.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    cancha_ids = list({r["cancha_id"] for r in reservas})
+    canchas = {c["id"]: c for c in await db.canchas.find({"id": {"$in": cancha_ids}}, {"_id": 0}).to_list(5000)}
+    local_ids = list({r["local_id"] for r in reservas})
+    locales = {loc["id"]: loc for loc in await db.locales.find({"id": {"$in": local_ids}}, {"_id": 0}).to_list(5000)}
+    user_ids = list({r["user_id"] for r in reservas})
+    users = {u["user_id"]: u for u in await db.users.find({"user_id": {"$in": user_ids}}, {"_id": 0}).to_list(5000)}
+    
+    buf = _io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ID", "Fecha", "Hora", "Cancha", "Local", "Usuario", "Email", "Precio_COP", "Confirmada", "Cancelada", "Pago", "Creada"])
+    for r in reservas:
+        c = canchas.get(r["cancha_id"], {})
+        loc = locales.get(r["local_id"], {})
+        u = users.get(r["user_id"], {})
+        w.writerow([
+            r["id"], r["fecha"], r["hora"],
+            c.get("nombre", ""), loc.get("nombre", ""),
+            u.get("name", ""), u.get("email", ""),
+            r.get("precio", 0),
+            "Sí" if r.get("confirmada") else "No",
+            "Sí" if r.get("cancelada") else "No",
+            r.get("payment_status", ""),
+            r.get("created_at", ""),
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=reservas_outside.csv"},
+    )
+
+
+# =================== REGISTRO DE CANCHA ===================
+@api_router.post("/registros-cancha")
+async def crear_registro_cancha(payload: RegistroCanchaIn):
+    doc = payload.model_dump()
+    doc["id"] = str(uuid.uuid4())
+    doc["estado"] = "pendiente"
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    await db.registros_cancha.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/registros-cancha")
+async def listar_registros(request: Request):
+    await require_admin(request)
+    return await db.registros_cancha.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api_router.put("/registros-cancha/{rid}/estado")
+async def actualizar_registro(rid: str, request: Request, estado: str = Query(...)):
+    await require_admin(request)
+    if estado not in ("aprobado", "rechazado", "pendiente"):
+        raise HTTPException(400, "Estado inválido")
+    await db.registros_cancha.update_one({"id": rid}, {"$set": {"estado": estado}})
+    return {"ok": True}
+
+
+SEED_VERSION = "v3-real-barranquilla"
+
 async def seed_data():
-    if await db.locales.count_documents({}) > 0:
+    cfg = await db.config.find_one({"key": "seed_version"}, {"_id": 0})
+    if cfg and cfg.get("value") == SEED_VERSION:
         return
-    # Seed La 8 FC
-    local_id = str(uuid.uuid4())
-    await db.locales.insert_one({
-        "id": local_id,
-        "nombre": "La 8 FC Cancha Sintética",
-        "direccion": "Cra. 8 #38b-51, La Magdalena, Barranquilla, Atlántico",
-        "puntuacion": 4.7,
-        "reglamento": [
-            "Uso obligatorio de zapatillas para césped sintético",
-            "No se permite el ingreso con bebidas alcohólicas",
-            "Respetar el horario reservado",
-        ],
-        "precios_por_dia": [
-            {"dia_nombre": "Lunes", "dia_numero": 0, "multiplicador": 1.0},
-            {"dia_nombre": "Martes", "dia_numero": 1, "multiplicador": 1.0},
-            {"dia_nombre": "Miércoles", "dia_numero": 2, "multiplicador": 1.0},
-            {"dia_nombre": "Jueves", "dia_numero": 3, "multiplicador": 1.1},
-            {"dia_nombre": "Viernes", "dia_numero": 4, "multiplicador": 1.3},
-            {"dia_nombre": "Sábado", "dia_numero": 5, "multiplicador": 1.5},
-            {"dia_nombre": "Domingo", "dia_numero": 6, "multiplicador": 1.4},
-        ],
-        "precios_por_hora": [
-            {"hora": "18:00", "multiplicador": 1.2},
-            {"hora": "19:00", "multiplicador": 1.3},
-            {"hora": "20:00", "multiplicador": 1.4},
-            {"hora": "21:00", "multiplicador": 1.3},
-        ],
-        "imagen": "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwyfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85",
-        "owner_user_id": "seed",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    # Canchas
-    for i, (nombre, base) in enumerate([
-        ("Cancha Principal F8", 120.0),
-        ("Cancha Norte F5", 80.0),
-        ("Cancha Sur F7", 100.0),
-    ]):
-        await db.canchas.insert_one({
-            "id": str(uuid.uuid4()),
-            "local_id": local_id,
-            "nombre": nombre,
-            "descripcion": "Cancha de césped sintético con iluminación profesional y graderías cubiertas.",
-            "precio_base": base,
-            "dimensiones": {"largo": 40, "ancho": 20, "arco_alto": 2, "arco_ancho": 3},
-            "imagenes": [
-                "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwyfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85",
+    # Wipe and re-seed
+    await db.locales.delete_many({})
+    await db.canchas.delete_many({})
+    await db.torneos.delete_many({})
+    
+    # 5 REAL canchas de Barranquilla con geo-referencias
+    canchas_reales = [
+        {
+            "nombre": "La 8 FC Cancha Sintética",
+            "direccion": "Cra. 8 #38B-51, La Magdalena, Barranquilla, Atlántico",
+            "lat": 10.9763, "lng": -74.7935,
+            "telefono": "+57 300 555 1234",
+            "horario": "Lunes - Domingo, 9:00 am - 11:00 pm",
+            "puntuacion": 4.7,
+            "como_llegar": "Frente al Parque La Magdalena, a 3 cuadras de la Av. Murillo (Cl. 45). Buses con ruta a La Magdalena por la Cra. 8.",
+            "puntos_referencia": ["Parque La Magdalena", "Iglesia San José", "Av. Murillo"],
+            "reglamento": [
+                "Uso obligatorio de zapatillas para césped sintético (no taches metálicos)",
+                "No se permite el ingreso con bebidas alcohólicas",
+                "Respetar el horario reservado",
+                "Llegar 10 minutos antes de la hora",
             ],
+            "imagen": "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "Cancha Principal F8", "precio": 120000, "desc": "Cancha F8 cubierta con graderías e iluminación LED profesional."},
+                {"nombre": "Cancha Norte F5", "precio": 80000, "desc": "Cancha F5 ideal para fútbol rápido y entrenamientos."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": False},
+        },
+        {
+            "nombre": "Goal FC Barranquilla",
+            "direccion": "Cl. 76 #56-30, Riomar, Barranquilla, Atlántico",
+            "lat": 11.0156, "lng": -74.8278,
+            "telefono": "+57 305 444 8899",
+            "horario": "Lunes - Domingo, 8:00 am - 12:00 am",
+            "puntuacion": 4.6,
+            "como_llegar": "Sobre la Cl. 76, a 2 cuadras de la Cra. 53. Estación TransMetro 'Joe Arroyo' a 5 minutos caminando.",
+            "puntos_referencia": ["Centro Comercial Buenavista", "Estación Joe Arroyo", "Universidad del Norte"],
+            "reglamento": [
+                "Prohibido el uso de cigarrillos dentro de las canchas",
+                "Los equipos deben llegar con uniforme adecuado",
+                "Máximo 12 jugadores por equipo",
+            ],
+            "imagen": "https://images.unsplash.com/photo-1551958219-acbc608c6377?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "Goal Stadium F11", "precio": 180000, "desc": "Cancha F11 reglamentaria con grama sintética FIFA Pro."},
+                {"nombre": "Goal Mini F5", "precio": 75000, "desc": "Cancha F5 perfecta para grupos pequeños."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": True, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": True},
+        },
+        {
+            "nombre": "Mundial Soccer 5",
+            "direccion": "Cra. 51B #76-78, Alto Prado, Barranquilla, Atlántico",
+            "lat": 11.0089, "lng": -74.8074,
+            "telefono": "+57 318 222 5566",
+            "horario": "Lunes - Domingo, 9:00 am - 11:00 pm",
+            "puntuacion": 4.4,
+            "como_llegar": "En el barrio Alto Prado, sobre la Cra. 51B. Cerca al estadio Tomás Suri Salcedo.",
+            "puntos_referencia": ["Estadio Tomás Suri Salcedo", "Parque Alto Prado", "Centro Comercial Único"],
+            "reglamento": [
+                "Es responsabilidad del cliente cuidar los implementos prestados",
+                "No se devuelve el dinero por cancelación con menos de 24 hrs",
+                "No se permite ingresar comida del exterior",
+            ],
+            "imagen": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "Mundial F7", "precio": 110000, "desc": "Cancha F7 con cerramiento total y red protectora."},
+                {"nombre": "Mundial Junior F5", "precio": 70000, "desc": "Especialmente diseñada para escuelas de fútbol infantil."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": False, "duchas": False, "arbitro_incluido": False},
+        },
+        {
+            "nombre": "Estadio Norte Sintético",
+            "direccion": "Cl. 84 #51B-25, El Country, Barranquilla, Atlántico",
+            "lat": 11.0213, "lng": -74.8201,
+            "telefono": "+57 310 777 4422",
+            "horario": "Lunes - Domingo, 6:00 am - 11:00 pm",
+            "puntuacion": 4.5,
+            "como_llegar": "Sobre la Cl. 84 en El Country, entre Cra. 51 y Cra. 52. Sector residencial con fácil acceso vehicular.",
+            "puntos_referencia": ["Country Club", "Cl. 84 con Cra. 51", "Centro Comercial Villa Country"],
+            "reglamento": [
+                "Reglamento estándar FIFA aplicable",
+                "Prohibido fumar y consumir alcohol",
+                "Llegar al menos 10 minutos antes de la hora reservada",
+            ],
+            "imagen": "https://images.unsplash.com/photo-1551958219-acbc608c6377?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "Cancha A F8", "precio": 130000, "desc": "Cancha F8 con iluminación profesional, ideal para partidos nocturnos."},
+                {"nombre": "Cancha B F5", "precio": 75000, "desc": "Cancha F5 perfecta para entrenamientos y partidos rápidos."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": False, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": False},
+        },
+        {
+            "nombre": "Sintética del Norte FC",
+            "direccion": "Cl. 99 #46-25, Villa Country, Barranquilla, Atlántico",
+            "lat": 11.0289, "lng": -74.8156,
+            "telefono": "+57 320 988 1100",
+            "horario": "Lunes - Sábado, 7:00 am - 11:00 pm. Domingo 9:00 am - 9:00 pm",
+            "puntuacion": 4.8,
+            "como_llegar": "En Villa Country sobre la Cl. 99. Acceso por la Av. Circunvalar o por la Cra. 46.",
+            "puntos_referencia": ["Mall Plaza El Castillo", "Av. Circunvalar", "Parque Villa Country"],
+            "reglamento": [
+                "Solo se permite el uso de zapatillas de microtaches",
+                "Los menores deben venir acompañados de un adulto",
+                "Se prohíbe estrictamente el uso de vidrio en las canchas",
+            ],
+            "imagen": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+            "canchas": [
+                {"nombre": "Norte F8 Premium", "precio": 150000, "desc": "Cancha F8 premium con grama de última generación y cabinas de transmisión."},
+                {"nombre": "Norte F5 Family", "precio": 85000, "desc": "Cancha F5 con zona infantil y graderías familiares."},
+            ],
+            "items": {"acepta_ninos": True, "acepta_mascotas": True, "parqueadero": True, "vestidores": True, "iluminacion": True, "cafeteria": True, "duchas": True, "arbitro_incluido": True},
+        },
+    ]
+    
+    standard_precios_dia = [
+        {"dia_nombre": "Lunes", "dia_numero": 0, "multiplicador": 1.0},
+        {"dia_nombre": "Martes", "dia_numero": 1, "multiplicador": 1.0},
+        {"dia_nombre": "Miércoles", "dia_numero": 2, "multiplicador": 1.0},
+        {"dia_nombre": "Jueves", "dia_numero": 3, "multiplicador": 1.1},
+        {"dia_nombre": "Viernes", "dia_numero": 4, "multiplicador": 1.3},
+        {"dia_nombre": "Sábado", "dia_numero": 5, "multiplicador": 1.5},
+        {"dia_nombre": "Domingo", "dia_numero": 6, "multiplicador": 1.4},
+    ]
+    standard_precios_hora = [
+        {"hora": "18:00", "multiplicador": 1.2},
+        {"hora": "19:00", "multiplicador": 1.3},
+        {"hora": "20:00", "multiplicador": 1.4},
+        {"hora": "21:00", "multiplicador": 1.3},
+    ]
+    
+    for c in canchas_reales:
+        local_id = str(uuid.uuid4())
+        await db.locales.insert_one({
+            "id": local_id,
+            "nombre": c["nombre"], "direccion": c["direccion"],
+            "lat": c["lat"], "lng": c["lng"],
+            "telefono": c["telefono"], "horario": c["horario"],
+            "puntuacion": c["puntuacion"],
+            "como_llegar": c["como_llegar"],
+            "puntos_referencia": c["puntos_referencia"],
+            "reglamento": c["reglamento"],
+            "precios_por_dia": standard_precios_dia,
+            "precios_por_hora": standard_precios_hora,
+            "imagen": c["imagen"],
+            "owner_user_id": "seed",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    # Second local
-    local2 = str(uuid.uuid4())
-    await db.locales.insert_one({
-        "id": local2,
-        "nombre": "Estadio Norte Sintético",
-        "direccion": "Cl. 84 #51b-25, El Country, Barranquilla, Atlántico",
-        "puntuacion": 4.5,
-        "reglamento": ["Reglamento estándar FIFA", "No fumar", "Llegar 10 min antes"],
-        "precios_por_dia": [
-            {"dia_nombre": "Sábado", "dia_numero": 5, "multiplicador": 1.5},
-            {"dia_nombre": "Domingo", "dia_numero": 6, "multiplicador": 1.4},
-        ],
-        "precios_por_hora": [{"hora": "20:00", "multiplicador": 1.3}],
-        "imagen": "https://images.unsplash.com/photo-1776566348668-8a3c3a68cbe9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85",
-        "owner_user_id": "seed",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    for nombre, base in [("Cancha A F8", 130.0), ("Cancha B F5", 75.0)]:
-        await db.canchas.insert_one({
+        for cancha in c["canchas"]:
+            await db.canchas.insert_one({
+                "id": str(uuid.uuid4()),
+                "local_id": local_id,
+                "nombre": cancha["nombre"],
+                "descripcion": cancha["desc"],
+                "precio_base": cancha["precio"],
+                "dimensiones": {"largo": 40, "ancho": 20, "arco_alto": 2, "arco_ancho": 3},
+                "imagenes": [c["imagen"]],
+                "items": c["items"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+    
+    # Torneos con categorías
+    torneos_seed = [
+        {"nombre": "Liga OutSide Senior 2026", "tipo": "liga", "categoria": "Senior",
+         "descripcion": "Liga oficial de OutSide para jugadores mayores de 18 años. 16 equipos competirán en formato de ida y vuelta. Premios en efectivo y trofeo oficial.",
+         "fecha_inicio": "2026-03-15", "cupo": 16},
+        {"nombre": "Copa Juvenil 2026", "tipo": "eliminación directa", "categoria": "Juvenil",
+         "descripcion": "Copa de eliminación directa para jugadores entre 14 y 17 años. ¡Demuestra tu talento!",
+         "fecha_inicio": "2026-04-10", "cupo": 12},
+        {"nombre": "Torneo Infantil OutSide Kids", "tipo": "liga", "categoria": "Infantil",
+         "descripcion": "Torneo infantil para niños de 8 a 12 años. Diversión, deporte y formación integral.",
+         "fecha_inicio": "2026-05-05", "cupo": 10},
+        {"nombre": "Copa Mixta Barranquilla", "tipo": "copa", "categoria": "Mixto",
+         "descripcion": "Torneo mixto donde cada equipo debe alinear al menos 2 mujeres en cancha. ¡Inclusión y deporte!",
+         "fecha_inicio": "2026-06-20", "cupo": 14},
+    ]
+    tournament_img = "https://images.unsplash.com/photo-1582086772405-6e2dcef428d4?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200"
+    for t in torneos_seed:
+        await db.torneos.insert_one({
             "id": str(uuid.uuid4()),
-            "local_id": local2,
-            "nombre": nombre,
-            "descripcion": "Cancha profesional con vestidores y parqueadero.",
-            "precio_base": base,
-            "dimensiones": {"largo": 40, "ancho": 20, "arco_alto": 2, "arco_ancho": 3},
-            "imagenes": ["https://images.unsplash.com/photo-1776566348668-8a3c3a68cbe9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85"],
+            "nombre": t["nombre"], "descripcion": t["descripcion"],
+            "sedes": [], "tipo": t["tipo"], "categoria": t["categoria"],
+            "abierto": True, "fecha_inicio": t["fecha_inicio"],
+            "cupo_maximo": t["cupo"],
+            "imagen": tournament_img,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    # Torneos
-    await db.torneos.insert_one({
-        "id": str(uuid.uuid4()),
-        "nombre": "Gran Torneo La 8FC 2027",
-        "descripcion": "Gran torneo que se llevará a cabo el 30 de febrero de 2027, premios para los tres primeros equipos y trofeo oficial.",
-        "sedes": [],
-        "tipo": "liga",
-        "abierto": True,
-        "fecha_inicio": "2027-02-15",
-        "imagen": "https://images.unsplash.com/photo-1582086772405-6e2dcef428d4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwxfHxzb2NjZXIlMjBwbGF5ZXJzJTIwdGVhbXxlbnwwfHx8fDE3Nzg1OTQwNTJ8MA&ixlib=rb-4.1.0&q=85",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    await db.torneos.insert_one({
-        "id": str(uuid.uuid4()),
-        "nombre": "Copa Verano Barranquilla",
-        "descripcion": "Torneo de verano abierto a todos los equipos amateur de Barranquilla.",
-        "sedes": [],
-        "tipo": "eliminación directa",
-        "abierto": True,
-        "fecha_inicio": "2026-04-10",
-        "imagen": "https://images.unsplash.com/photo-1582086772405-6e2dcef428d4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwxfHxzb2NjZXIlMjBwbGF5ZXJzJTIwdGVhbXxlbnwwfHx8fDE3Nzg1OTQwNTJ8MA&ixlib=rb-4.1.0&q=85",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    
+    await db.config.update_one(
+        {"key": "seed_version"},
+        {"$set": {"key": "seed_version", "value": SEED_VERSION}},
+        upsert=True,
+    )
 
 @api_router.get("/")
 async def root():

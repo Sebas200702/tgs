@@ -26,9 +26,10 @@ export default function Torneos() {
               <div className="p-5 bg-[#E8F3E4]">
                 <h3 className="font-display text-lg font-bold text-[#1F4D2A]">{t.nombre}</h3>
                 <p className="text-xs text-[#1F4D2A]/80 mt-1 line-clamp-2">{t.descripcion}</p>
-                <div className="flex items-center gap-4 mt-3 text-xs">
+                <div className="flex items-center gap-3 mt-3 text-xs flex-wrap">
                   <span className="flex items-center gap-1"><Trophy size={14} /> {t.tipo}</span>
-                  <span className="flex items-center gap-1"><Users size={14} /> {t.equipos_count} equipos</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#1F4D2A] text-white font-semibold">{t.categoria || "Senior"}</span>
+                  <span className="flex items-center gap-1"><Users size={14} /> {t.equipos_count}/{t.cupo_maximo || "?"}</span>
                 </div>
                 <div className="pill-btn-dark mt-4 inline-flex text-xs">Ver más <ArrowUpRight size={14} /></div>
               </div>

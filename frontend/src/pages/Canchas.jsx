@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Search } from "lucide-react";
+import { ArrowUpRight, Search, MapPin } from "lucide-react";
 import api from "../lib/api";
 import { Input } from "../components/ui/input";
+import { formatCOP } from "../lib/format";
 
 export default function Canchas() {
   const [canchas, setCanchas] = useState([]);
@@ -52,10 +53,10 @@ export default function Canchas() {
               <img src={c.imagenes?.[0] || c.local?.imagen || "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?w=800"} alt={c.nombre} className="w-full h-44 object-cover" />
               <div className="p-5">
                 <h3 className="font-display text-lg font-bold text-[#1F4D2A]">{c.nombre}</h3>
-                <p className="text-xs text-[#4B5563] mt-1">{c.local?.nombre}</p>
-                <p className="text-xs text-[#4B5563] mt-2 line-clamp-2">{c.local?.direccion}</p>
+                <p className="text-xs text-[#4B5563] mt-1 font-semibold">{c.local?.nombre}</p>
+                <p className="text-xs text-[#4B5563] mt-1 flex items-start gap-1"><MapPin size={12} className="mt-0.5 flex-shrink-0" /> {c.local?.direccion}</p>
                 <div className="flex items-center justify-between mt-4">
-                  <span className="font-display font-bold text-[#1F4D2A]">${c.precio_base?.toFixed(2)}<span className="text-xs font-normal text-[#4B5563]">/hora base</span></span>
+                  <span className="font-display font-bold text-[#1F4D2A]">{formatCOP(c.precio_base, false)}<span className="text-xs font-normal text-[#4B5563]"> /h</span></span>
                   <span className="pill-btn text-xs"><ArrowUpRight size={14} /> Reservar</span>
                 </div>
               </div>
