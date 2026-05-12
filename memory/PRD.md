@@ -3,58 +3,83 @@
 ## Original Problem Statement
 "Hola necesito que me ayudes a desarrollar esta web, te pase las funcionalidades y te di ejemplos de diseño."
 
-User-provided spec:
-- Platform: **OutSide** — synthetic football court (cancha sintética) booking platform for Barranquilla, Colombia.
-- Roles: Admin / User.
-- Models: Usuario, Cancha, Local, Reserva, Torneo, Partido, Equipo, Descuento (with 4 validity types), PrecioDia, PrecioHora.
+Plataforma de reserva de canchas sintéticas en Barranquilla, Colombia.
 
-## User Choices (from ask_human)
-- Auth: Emergent-managed Google login.
-- Image uploads: Yes (Object Storage).
-- MVP scope: Full — includes torneos, postulations, partidos.
-- Payments: Stripe.
-- Admin seed: `admin@outside.com` (any email in `ADMIN_EMAILS` env var becomes admin on first login).
+## Iteration 2 — User Feedback (Feb 2026)
+- Moneda debe ser COP (no USD).
+- Canchas deben ser REALES de Barranquilla (5 reales geo-referenciadas).
+- Mapa Google Maps embebido en cada cancha.
+- Footer debe tener links funcionales.
+- Sistema de "Registra tu cancha" público funcional.
+- Categorías de torneos.
+- Estadísticas (horas más/menos solicitadas) y exportación CSV de reservas.
+- Items de ingreso (niños, mascotas, parqueadero, etc.).
+- Direcciones, cómo llegar, puntos de referencia.
+
+## User Choices
+- Auth: Emergent-managed Google login + dev-seed para testing.
+- Image uploads: Object Storage.
+- Pagos: Stripe (currency=COP).
+- Admin seed: `admin@outside.com` (configurable en `ADMIN_EMAILS`).
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB (motor async).
-- **Frontend**: React 19 + Tailwind + Shadcn/UI + Sonner toasts.
-- **Auth**: Emergent OAuth (session_token cookie + Bearer fallback).
-- **Payments**: Stripe via `emergentintegrations` (currency USD test mode).
-- **Object Storage**: Emergent Object Storage via `EMERGENT_LLM_KEY`.
+- Backend: FastAPI + MongoDB (motor).
+- Frontend: React 19 + Tailwind + Shadcn/UI + Sonner.
+- Auth: Emergent OAuth (session_token cookie/Bearer).
+- Pagos: Stripe via `emergentintegrations` (currency='cop').
+- Storage: Emergent Object Storage.
 
 ## Personas
-- **Visitante**: Browses canchas and torneos, can view info without auth.
-- **Usuario**: Logs in via Google, makes reservations, pays via Stripe, postulates teams to torneos.
-- **Administrador**: Manages locales, canchas, reservas, torneos, and descuentos via `/admin` panel.
+- **Visitante**: Browse canchas/torneos, ver mapa y servicios, registrar su propia cancha.
+- **Usuario**: Login Google, reservar, pagar (Stripe COP), cancelar/confirmar, postular equipos.
+- **Administrador**: CRUD locales/canchas/torneos/descuentos, ver reservas, gestionar solicitudes de afiliación, estadísticas, exportar CSV.
 
-## Core Requirements (static)
-1. Admin can CRUD canchas, locales, torneos, descuentos.
-2. Admin can view all reservas (with user info).
-3. User can reserve a cancha (with conflict checking).
-4. Dynamic pricing: `precio_base × multiplicador_dia × multiplicador_hora × (1 - descuento%/100)`.
-5. Descuento conditions support 4 types: rango-fecha, rango-hora, rango-fecha-hora, fecha-hora-exacta.
-6. User can cancel/confirm own reservas.
-7. Stripe checkout for paying reservas.
-8. Torneos: list, detail, postular equipo (when abierto).
-9. Image upload for canchas (with custom backend file serving).
+## Core Requirements
+1. Admin CRUD: canchas, locales, torneos (con categoría), descuentos (4 tipos).
+2. User: reservar con cálculo dinámico (precio × multiplicador_día × multiplicador_hora × descuento).
+3. Stripe checkout en COP.
+4. Torneos con categorías: Infantil, Juvenil, Senior, Veteranos, Mixto.
+5. Subida de imágenes via Object Storage.
+6. Geo-referenciación + Google Maps embed + cómo llegar.
+7. Items de ingreso por cancha (8 servicios).
+8. Estadísticas: horas más/menos solicitadas, ingresos potenciales/confirmados.
+9. Exportación CSV de reservas.
+10. Formulario público "Registra tu cancha" + workflow admin de aprobación.
+11. Footer + 5 páginas estáticas (Quiénes somos, FAQ, Términos, Privacidad, Contacto).
 
-## What's been Implemented (Feb 2026)
-- ✅ Backend: auth (Emergent + dev-seed), locales CRUD, canchas CRUD, reservas (create/list/cancel/confirm), discounts (4 condition types), torneos (CRUD + postulation), upload + file serving, Stripe checkout + status polling + webhook, stats endpoint, seed data on startup.
-- ✅ Frontend: Home (hero, stats band, canchas destacadas, news/eventos), Canchas listing with search, Cancha detail with date/hour picker + price calculation + reservation, Mis Reservas dashboard with cancel/confirm/pay actions, Torneos listing and detail with team postulation, Admin panel with 5 tabs (locales/canchas/reservas/torneos/descuentos), Login via Google OAuth, Dashboard for user profile, Payment success with polling, Toast notifications, Responsive Navbar + Footer.
-- ✅ Design: Sage-green/mint palette, Outfit/Figtree/Caveat fonts, pill-shaped CTAs, rounded 3xl cards, hand-drawn accent text.
-- ✅ Testing: 96.2% backend pass rate (25/26 tests). Only minor Stripe placeholder issue fixed (try/except).
+## What's been Implemented
+### Iteration 1 (Feb 2026)
+- Auth Google + dev-seed, CRUD básico, reservas, descuentos, torneos, upload, Stripe checkout, polling de pago.
+- Home, Canchas list, Cancha detail, Mis Reservas, Torneos, Admin (5 tabs), Dashboard, Payment success.
+- Diseño sage-green con Outfit/Figtree/Caveat fonts.
 
-## Backlog (P1 / P2)
-- **P1**: Admin: bulk discounts editor; Admin: tournament bracket (partidos) generator; calendar view of reservations.
-- **P1**: User: profile edit (apellido, edad).
-- **P2**: Email notifications on reserva confirmada (Resend).
-- **P2**: Search by date/hour availability across all canchas.
-- **P2**: Multi-image upload per cancha (current is single).
-- **P2**: Currency support for COP (currently USD test mode).
-- **P2**: Map view of canchas (Google Maps embed).
-- **P2**: Reviews/ratings system per cancha (currently only local).
+### Iteration 2 (Feb 2026 — current)
+- ✅ Moneda COP en todo (display formatCOP + Stripe currency='cop').
+- ✅ 5 canchas REALES geo-referenciadas en Barranquilla (La 8 FC, Goal FC, Mundial Soccer 5, Estadio Norte, Sintética del Norte) = 10 canchas totales.
+- ✅ Google Maps iframe embebido + botón "Abrir en Google Maps" (link a direcciones).
+- ✅ Items de ingreso por cancha (8 servicios con iconos): niños, mascotas, parqueadero, vestidores, iluminación, cafetería, duchas, árbitro.
+- ✅ Cómo llegar + puntos de referencia + teléfono + horario.
+- ✅ Categorías de torneos (Infantil/Juvenil/Senior/Veteranos/Mixto) + cupo máximo.
+- ✅ Página "Registra tu cancha" pública con formulario.
+- ✅ Tab "Solicitudes" en admin para aprobar/rechazar registros.
+- ✅ Tab "Estadísticas" con KPIs, gráfico de horas más solicitadas, exportación CSV.
+- ✅ 5 páginas estáticas funcionales (Quiénes somos, FAQ, Términos, Privacidad, Contacto).
+- ✅ Footer rediseñado con links a todas las páginas reales.
+- ✅ Tests backend: **100% (52/52)**.
+
+## Backlog (P1/P2)
+- **P1**: EmailStr validation + rate limiting en `/api/registros-cancha`.
+- **P1**: Gate `/api/auth/dev-seed` con ENABLE_DEV_SEED env flag para prod.
+- **P1**: Validar el flujo Stripe COP completo con tarjeta de prueba real (sk_test_emergent puede tener limitaciones para COP).
+- **P2**: Splitting de server.py en routers (auth, locales, canchas, reservas, descuentos, torneos, payments, stats, registros).
+- **P2**: Notificaciones por email (Resend) cuando se aprueba un registro o se confirma una reserva.
+- **P2**: Generador automático de partidos/brackets en torneos.
+- **P2**: PDF export de reservas (csv ya está).
+- **P2**: Map view de canchas (todos los pins en un mapa en /canchas).
+- **P2**: Reviews/ratings por usuario.
+- **P2**: stats_horas filtrar por fechas futuras vs pasadas.
 
 ## Next Tasks
-- Validate end-to-end Stripe payment flow with real test card.
-- Add tournament bracket generation (partidos auto-creation).
-- Add date-range availability search.
+- Configurar email validation y rate-limit en endpoints públicos.
+- Email notifications (Resend) para approvals + reserva confirmada.
+- Validación full E2E del flujo Stripe COP.
