@@ -1,0 +1,100 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 1 (Organic & Earthy)",
+  "colors": {
+    "background": "#FAF9F6",
+    "surface": "#FFFFFF",
+    "primary": "#D4E8C9",
+    "primary_foreground": "#1F4D2A",
+    "secondary": "#E8F3E4",
+    "secondary_foreground": "#1F4D2A",
+    "accent": "#1F4D2A",
+    "accent_foreground": "#FFFFFF",
+    "muted": "#F3F4F6",
+    "muted_foreground": "#4B5563",
+    "border": "#D1D5DB"
+  },
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "Figtree, sans-serif",
+    "accent_font": "Caveat, cursive",
+    "h1": "text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-[#1F4D2A]",
+    "h2": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-[#1F4D2A]",
+    "h3": "text-xl sm:text-2xl font-semibold text-[#1F4D2A]",
+    "body": "text-base leading-relaxed text-[#4B5563]",
+    "hand_drawn": "font-['Caveat'] text-2xl md:text-3xl text-[#1F4D2A] transform -rotate-2"
+  },
+  "spacing": {
+    "section": "py-16 md:py-24",
+    "container": "px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto",
+    "card_padding": "p-6 md:p-8",
+    "gap_standard": "gap-6 md:gap-8"
+  },
+  "components": {
+    "button": {
+      "base": "inline-flex items-center justify-center rounded-full font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#1F4D2A] focus:ring-offset-2",
+      "primary": "bg-[#D4E8C9] text-[#1F4D2A] hover:bg-[#C2DEB4] px-6 py-3",
+      "secondary": "bg-[#E8F3E4] text-[#1F4D2A] hover:bg-[#D4E8C9] px-6 py-3",
+      "accent": "bg-[#1F4D2A] text-white hover:bg-[#16381E] px-6 py-3",
+      "pill_cta": "bg-[#D4E8C9] text-[#1F4D2A] rounded-full px-6 py-3 font-semibold hover:-translate-y-1 hover:shadow-md transition-all duration-300 flex items-center gap-2",
+      "arrow_icon": "lucide-arrow-up-right"
+    },
+    "card": {
+      "base": "bg-white rounded-3xl border border-[#E8F3E4] shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden",
+      "padding": "p-6"
+    },
+    "hero": {
+      "overlay": "bg-black/40",
+      "alignment": "center",
+      "text_color": "text-white"
+    },
+    "badge": {
+      "base": "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-[#E8F3E4] text-[#1F4D2A]"
+    }
+  },
+  "layout": {
+    "marketing": {
+      "hero": "Full-bleed background image with centered text and CTA. Night soccer field image.",
+      "stats_band": "Light mint-green (#D4E8C9) band below hero. 3-column grid for stats (20+ Recintos, 40+ Canchas, 90+ Reservas). Dark green bold outline icons.",
+      "featured_courts": "Alternating left/right image-text layout cards. Pill buttons with ↗.",
+      "news_events": "3-column grid with sage-green info cards.",
+      "footer": "Light green pastel background, multi-column navigation, app store badges placeholders."
+    },
+    "dashboard": {
+      "navigation": "Sidebar for desktop, bottom tab or hamburger for mobile. High contrast active states.",
+      "grid": "Dense bento-box style for analytics, lists for reservations. Max 8px border radius for inner dashboard elements.",
+      "cards": "Flat background, 1px subtle border, no heavy shadows."
+    }
+  },
+  "images": {
+    "hero": {
+      "url": "https://images.unsplash.com/photo-1776160043138-52e2cf9c6e4e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxuaWdodCUyMHNvY2NlciUyMGZpZWxkJTIwc3RhZGl1bXxlbnwwfHx8fDE3Nzg1OTQwNDZ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Full-bleed stadium/field night photography for hero background."
+    },
+    "courts": [
+      {
+        "url": "https://images.unsplash.com/photo-1647118868186-70d38e10b0dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwyfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Synthetic soccer pitch placeholder 1"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1776566348668-8a3c3a68cbe9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxzeW50aGV0aWMlMjBzb2NjZXIlMjBwaXRjaCUyMGZvb3RiYWxsJTIwZmllbGR8ZW58MHx8fHwxNzc4NTk0MDQ3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Synthetic soccer pitch placeholder 2"
+      }
+    ],
+    "tournaments": [
+      {
+        "url": "https://images.unsplash.com/photo-1582086772405-6e2dcef428d4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwxfHxzb2NjZXIlMjBwbGF5ZXJzJTIwdGVhbXxlbnwwfHx8fDE3Nzg1OTQwNTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Soccer players team banner"
+      }
+    ]
+  },
+  "instructions_to_main_agent": {
+    "language": "es",
+    "branding": "Brand name 'OutSide'. Spanish UI labels exclusively.",
+    "fonts": "Import 'Outfit', 'Figtree', and 'Caveat' from Google Fonts. Do NOT use Inter or Roboto.",
+    "testing": "All interactive elements must include data-testid attributes (e.g., data-testid='reserve-court-button').",
+    "icons": "Use lucide-react. Prefer bold styling for stats section icons.",
+    "components": "Use Shadcn UI for dashboard elements (forms, tables, date pickers) but customize them to match the pastel green theme. For marketing pages, use raw HTML/Tailwind for creative freedom.",
+    "data_models": "Implement models for Usuario, Cancha, Local, Reserva, Torneo, Partido, Equipo, Descuento."
+  }
+}
