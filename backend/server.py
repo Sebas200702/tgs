@@ -11,6 +11,7 @@ import requests
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Literal
+import re
 from datetime import datetime, timezone, timedelta
 
 from emergentintegrations.payments.stripe.checkout import (
@@ -405,6 +406,40 @@ async def delete_local(local_id: str, request: Request):
 
 
 # =================== CANCHAS ===================
+
+@api_router.get("/search")
+async def global_search(q: str = Query(..., min_length=1)):
+    pattern = re.compile(re.escape(q), re.IGNORECASE)
+
+    canchas_cursor = db.canchas.find(
+        {"nombre": pattern},
+        {"_id": 0}
+    ).limit(5)
+    canchas = await canchas_cursor.to_list(5)
+    local_ids = list({c["local_id"] for c in canchas if c.get("local_id")})
+    if local_ids:
+        locales_map = {loc["id"]: loc for loc in await db.locales.find(
+            {"id": {"$in": local_ids}}, {"_id": 0}
+        ).to_list(100)}
+        for c in canchas:
+            c["local"] = locales_map.get(c.get("local_id"))
+
+    torneos_cursor = db.torneos.find(
+        {"$or": [{"nombre": pattern}, {"descripcion": pattern}, {"categoria": pattern}]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(5)
+    torneos = await torneos_cursor.to_list(5)
+    for t in torneos:
+        t["equipos_count"] = await db.equipos.count_documents({"torneo_id": t["id"]})
+
+    locales_cursor = db.locales.find(
+        {"$or": [{"nombre": pattern}, {"direccion": pattern}]},
+        {"_id": 0}
+    ).limit(5)
+    locales = await locales_cursor.to_list(5)
+
+    return {"canchas": canchas, "torneos": torneos, "locales": locales}
+
 @api_router.get("/canchas")
 async def list_canchas(local_id: Optional[str] = None):
     q = {"local_id": local_id} if local_id else {}
